@@ -1,1 +1,52 @@
-
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "actionGroupName": {
+      "type": "string",
+      "defaultValue": "EmailAlertsGroup",
+      "metadata": {
+        "description": "Unique name for the Action Group"
+      }
+    },
+    "actionGroupShortName": {
+      "type": "string",
+      "defaultValue": "email-alerts",
+      "metadata": {
+        "description": "Short name for the Action Group (max 12 characters)"
+      }
+    },
+    "emailAddress": {
+      "type": "string",
+      "defaultValue": "duduyemiolamc@gmail.com",
+      "metadata": {
+        "description": "Email address to receive alert notifications"
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Insights/actionGroups",
+      "apiVersion": "2023-01-01",
+      "name": "[parameters('actionGroupName')]",
+      "location": "Global",
+      "properties": {
+        "groupShortName": "[parameters('actionGroupShortName')]",
+        "enabled": true,
+        "emailReceivers": [
+          {
+            "name": "emailReceiver1",
+            "emailAddress": "[parameters('emailAddress')]",
+            "useCommonAlertSchema": true
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "actionGroupId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Insights/actionGroups', parameters('actionGroupName'))]"
+    }
+  }
+}
