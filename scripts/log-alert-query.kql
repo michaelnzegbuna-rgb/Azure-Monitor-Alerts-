@@ -1,0 +1,18 @@
+// Kusto Query Language (KQL) - Azure Storage Log Alerts Query
+//
+// Description:
+//   This query analyzes diagnostic logs from an Azure Storage Account (StorageBlobLogs).
+//   It filters for transactions that returned client or server errors (HTTP Status Code >= 400),
+//   such as Authorization Failures (403), Resource Not Found (404), or Server Errors (5xx).
+//
+// Alert Trigger Rule:
+//   Set this query to evaluate every 5 minutes, and fire an alert if the count of failed
+//   transactions is Greater Than 5 in the evaluation window.
+
+StorageBlobLogs
+| where TimeGenerated > ago(1h)
+| where StatusCode >= 400
+| project TimeGenerated, AccountName, OperationName, StatusCode, StatusText, Uri, CallerIpAddress
+| summarize ErrorCount = count() by AccountName, OperationName, StatusCode
+| where ErrorCount > 5
+| order by ErrorCount desc
