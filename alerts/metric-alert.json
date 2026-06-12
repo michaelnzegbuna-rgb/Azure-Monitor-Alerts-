@@ -1,0 +1,69 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "alertRuleName": {
+      "type": "string",
+      "defaultValue": "StorageTransactionsAlert",
+      "metadata": {
+        "description": "Name of the alert rule"
+      }
+    },
+    "storageAccountId": {
+      "type": "string",
+      "metadata": {
+        "description": "Full resource ID of the Storage Account to monitor"
+      }
+    },
+    "actionGroupId": {
+      "type": "string",
+      "metadata": {
+        "description": "Full resource ID of the Action Group to notify"
+      }
+    },
+    "thresholdValue": {
+      "type": "int",
+      "defaultValue": 50,
+      "metadata": {
+        "description": "The transaction count threshold to trigger the alert"
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Insights/metricAlerts",
+      "apiVersion": "2018-03-01",
+      "name": "[parameters('alertRuleName')]",
+      "location": "global",
+      "properties": {
+        "description": "Alert when total storage transactions exceed threshold in a 1-minute window.",
+        "severity": 3,
+        "enabled": true,
+        "scopes": [
+          "[parameters('storageAccountId')]"
+        ],
+        "evaluationFrequency": "PT1M",
+        "windowSize": "PT1M",
+        "criteria": {
+          "odata.type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+          "allOf": [
+            {
+              "name": "HighTransactions",
+              "metricName": "Transactions",
+              "metricNamespace": "Microsoft.Storage/storageAccounts",
+              "operator": "GreaterThan",
+              "threshold": "[parameters('thresholdValue')]",
+              "timeAggregation": "Total",
+              "criterionType": "StaticThresholdCriterion"
+            }
+          ]
+        },
+        "actions": [
+          {
+            "actionGroupId": "[parameters('actionGroupId')]"
+          }
+        ]
+      }
+    }
+  ]
+}
