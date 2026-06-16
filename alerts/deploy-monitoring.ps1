@@ -1,41 +1,38 @@
 <#
 .SYNOPSIS
-    Deploys the Action Group and Metric Alert rule to monitor the Storage Account using Azure CLI (az).
+    Provisions an Action Group and a Metric Alert rule for monitoring a Storage Account, using the Azure CLI (az).
 .DESCRIPTION
-    This script is optimized to run in Windows PowerShell using the Azure CLI (az) so that it 
-    does not require the Az PowerShell module.
+    Built to run on Windows PowerShell purely through the Azure CLI, this script avoids any
+    dependency on the Az PowerShell module entirely.
 .PARAMETER ResourceGroupName
-    The Resource Group containing the storage account (default: 'rg-alerts-demo').
+    Resource Group hosting the target storage account. Defaults to 'rg-alerts-demo' if not supplied.
 .PARAMETER StorageAccountName
-    The name of the Storage Account to monitor (Required).
+    Name of the Storage Account that should be monitored. This parameter is required.
 .PARAMETER EmailAddress
-    The email address to receive alerts (default: 'duduyemiolamc@gmail.com').
+    Destination email for alert notifications. Defaults to 'duduyemiolamc@gmail.com' if not supplied.
 .EXAMPLE
     .\deploy-monitoring.ps1 -StorageAccountName "alertstore49821"
 #>
-
 [CmdletBinding()]
 param (
     [string]$ResourceGroupName = "rg-alerts-demo",
-
     [Parameter(Mandatory = $true)]
     [string]$StorageAccountName,
-
-    [string]$EmailAddress = "duduyemiolamc@gmail.com"
+    [string]$EmailAddress = "nzemikez@gmail.com"
 )
 
-# Check for Azure CLI
+# Confirm Azure CLI is installed
 $azCheck = Get-Command az -ErrorAction SilentlyContinue
 if ($null -eq $azCheck) {
-    Write-Error "Azure CLI (az) is not installed or not in PATH."
+    Write-Error "Azure CLI (az) was not found. Make sure it's installed and available on PATH."
     exit 1
 }
 
-# Verify login status
-Write-Host "Verifying Azure CLI login status..." -ForegroundColor Cyan
+# Confirm an active Azure session exists
+Write-Host "Checking current Azure CLI session..." -ForegroundColor Cyan
 $account = az account show --output json | ConvertFrom-Json -ErrorAction SilentlyContinue
 if ($null -eq $account) {
-    Write-Error "Not logged in to Azure CLI. Please run 'az login' first."
+    Write-Error "No active Azure session detected. Run 'az login' before retrying."
     exit 1
 }
 
@@ -43,37 +40,35 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $agTemplate = Join-Path $scriptDir "action-group.json"
 $maTemplate = Join-Path $scriptDir "metric-alert.json"
 
-# 1. Fetch Storage Account resource ID
-Write-Host "Fetching resource ID for Storage Account '$StorageAccountName'..." -ForegroundColor Cyan
+# 1. Resolve the Storage Account's resource ID
+Write-Host "Looking up resource ID for Storage Account '$StorageAccountName'..." -ForegroundColor Cyan
 $storageId = az storage account show --name $StorageAccountName --resource-group $ResourceGroupName --query id -o tsv 2>$null
 if ([string]::IsNullOrEmpty($storageId)) {
-    Write-Error "Storage Account '$StorageAccountName' not found in Resource Group '$ResourceGroupName'."
+    Write-Error "Could not locate Storage Account '$StorageAccountName' inside Resource Group '$ResourceGroupName'."
     exit 1
 }
-Write-Host "Storage Account ID: $storageId" -ForegroundColor Gray
+Write-Host "Resolved Storage Account ID: $storageId" -ForegroundColor Gray
 
-# 2. Deploy Action Group
-Write-Host "Deploying Action Group (Email Receiver: $EmailAddress)..." -ForegroundColor Cyan
+# 2. Provision the Action Group
+Write-Host "Provisioning Action Group with email receiver '$EmailAddress'..." -ForegroundColor Cyan
 $agDeployJson = az deployment group create `
     --resource-group $ResourceGroupName `
     --template-file $agTemplate `
     --parameters emailAddress=$EmailAddress `
     --output json | ConvertFrom-Json
-
 $actionGroupId = $agDeployJson.properties.outputs.actionGroupId.value
 if ([string]::IsNullOrEmpty($actionGroupId)) {
-    Write-Error "Failed to retrieve Action Group resource ID from deployment outputs."
+    Write-Error "Action Group deployment did not return a resource ID — check the deployment output for errors."
     exit 1
 }
-Write-Host "Action Group deployed successfully. ID: $actionGroupId" -ForegroundColor Green
+Write-Host "Action Group provisioned. Resource ID: $actionGroupId" -ForegroundColor Green
 
-# 3. Deploy Metric Alert
-Write-Host "Deploying Metric Alert Rule 'StorageTransactionsAlert'..." -ForegroundColor Cyan
+# 3. Provision the Metric Alert rule
+Write-Host "Provisioning Metric Alert rule 'StorageTransactionsAlert'..." -ForegroundColor Cyan
 $null = az deployment group create `
     --resource-group $ResourceGroupName `
     --template-file $maTemplate `
     --parameters storageAccountId=$storageId actionGroupId=$actionGroupId `
     --output json
-
-Write-Host "Metric Alert Rule deployed successfully!" -ForegroundColor Green
-Write-Host "It will monitor transaction rates and trigger if they exceed 50 per minute." -ForegroundColor Green
+Write-Host "Metric Alert rule provisioned successfully!" -ForegroundColor Green
+Write-Host "The alert will track transaction volume and fire once it crosses 50 transactions per minute." -ForegroundColor Green
