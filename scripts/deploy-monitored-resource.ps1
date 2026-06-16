@@ -1,19 +1,18 @@
 <#
 .SYNOPSIS
-    Creates the Resource Group and provisions a test Storage Account using Azure CLI (az).
+    Sets up the Resource Group and provisions a test Storage Account, using the Azure CLI (az).
 .DESCRIPTION
-    This script is optimized to run in Windows PowerShell using the Azure CLI (az) so that it 
-    does not require the Az PowerShell module.
+    Built to run on Windows PowerShell purely through the Azure CLI, this script avoids any
+    dependency on the Az PowerShell module entirely.
 .PARAMETER ResourceGroupName
-    The name of the Resource Group to create (default: 'rg-alerts-demo').
+    Resource Group to create. Defaults to 'rg-alerts-demo' if not supplied.
 .PARAMETER Location
-    The Azure region to deploy to (default: 'westeurope').
+    Azure region for the deployment. Defaults to 'westeurope' if not supplied.
 .PARAMETER StorageAccountName
-    Optional specific name for the Storage Account. If omitted, one will be generated.
+    A specific name for the Storage Account, if you want one. Leave it out and a name will be generated automatically.
 .EXAMPLE
     .\deploy-monitored-resource.ps1
 #>
-
 [CmdletBinding()]
 param (
     [string]$ResourceGroupName = "rg-alerts-demo",
@@ -21,33 +20,33 @@ param (
     [string]$StorageAccountName
 )
 
-# Check for Azure CLI
+# Confirm Azure CLI is installed
 $azCheck = Get-Command az -ErrorAction SilentlyContinue
 if ($null -eq $azCheck) {
-    Write-Error "Azure CLI (az) is not installed or not in PATH."
+    Write-Error "Azure CLI (az) was not found. Make sure it's installed and available on PATH."
     exit 1
 }
 
-# Verify login status
-Write-Host "Verifying Azure CLI login status..." -ForegroundColor Cyan
+# Confirm an active Azure session exists
+Write-Host "Checking current Azure CLI session..." -ForegroundColor Cyan
 $account = az account show --output json | ConvertFrom-Json -ErrorAction SilentlyContinue
 if ($null -eq $account) {
-    Write-Error "Not logged in to Azure CLI. Please run 'az login' first."
+    Write-Error "No active Azure session detected. Run 'az login' before retrying."
     exit 1
 }
 
-# Auto-generate Storage Account name if not provided
+# Generate a Storage Account name automatically if one wasn't given
 if ([string]::IsNullOrEmpty($StorageAccountName)) {
     $rand = Get-Random -Minimum 10000 -Maximum 99999
     $StorageAccountName = "alertstore$rand"
 }
 
-# 1. Create Resource Group
-Write-Host "Creating Resource Group '$ResourceGroupName' in '$Location'..." -ForegroundColor Cyan
+# 1. Set up the Resource Group
+Write-Host "Setting up Resource Group '$ResourceGroupName' in '$Location'..." -ForegroundColor Cyan
 $null = az group create --name $ResourceGroupName --location $Location --output json
 
-# 2. Create Storage Account
-Write-Host "Creating Storage Account '$StorageAccountName' (Standard_LRS)..." -ForegroundColor Cyan
+# 2. Provision the Storage Account
+Write-Host "Provisioning Storage Account '$StorageAccountName' (Standard_LRS)..." -ForegroundColor Cyan
 $storageJson = az storage account create `
     --name $StorageAccountName `
     --resource-group $ResourceGroupName `
@@ -56,6 +55,6 @@ $storageJson = az storage account create `
     --kind StorageV2 `
     --output json
 
-Write-Host "Storage Account '$StorageAccountName' created successfully!" -ForegroundColor Green
-Write-Host "To deploy monitoring, run:" -ForegroundColor Green
+Write-Host "Storage Account '$StorageAccountName' is ready!" -ForegroundColor Green
+Write-Host "Next, deploy monitoring by running:" -ForegroundColor Green
 Write-Host ".\alerts\deploy-monitoring.ps1 -StorageAccountName $StorageAccountName" -ForegroundColor Yellow
