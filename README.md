@@ -1,112 +1,75 @@
-# Azure Monitor Alerts Learning Program
+# Azure Monitor Alerting Strategy — Configuration Report
 
-This repository contains the templates, automation scripts, and documentation for establishing proactive cloud monitoring using Azure Monitor Alerts and Action Groups.
-
----
-
-## Observability Architecture
-
-This governance framework implements a closed-loop monitoring cycle:
-1.  **Monitored Resource**: A test Storage Account.
-2.  **Telemetry Source**: Metric data (`Transactions`) collected in real-time.
-3.  **Proactive Evaluation**: A Metric Alert Rule evaluating traffic every minute.
-4.  **Actionable Notification**: An Action Group delivering immediate email alerts on threshold breach.
-5.  **Lifecycle Tracking**: Alert transitions from *Fired* to *Resolved* once transaction rates drop.
+This report walks through the design decisions, configuration values, and threshold reasoning behind the proactive monitoring setup deployed in Azure.
 
 ---
 
-## Directory Structure
+## 1. Scope of Monitoring & Metric Choice
 
-```text
-AzureAlertsMiniProject/
-├── README.md                          # Main project instructions
-├── alerts/
-│   ├── action-group.json              # ARM template for Action Group (Email)
-│   ├── metric-alert.json              # ARM template for Metric Alert Rule
-│   ├── deploy-monitoring.ps1          # PowerShell deployment helper script
-│   └── deploy-monitoring.sh           # Bash deployment helper script
-├── scripts/
-│   ├── deploy-monitored-resource.ps1  # PowerShell storage provisioner
-│   ├── deploy-monitored-resource.sh   # Bash storage provisioner
-│   ├── simulate-load.ps1              # PowerShell traffic simulator (stress test)
-│   └── log-alert-query.kql            # KQL log-based alert reference query
-├── reports/
-│   └── monitoring-report.md           # Configuration & threshold report
-└── screenshots/
-    └── README.md                      # Checklist & instructions for screenshots
+### Resource Under Monitoring
+*   **Resource Type**: Azure Storage Account (General Purpose v2)
+*   **Scope**: Lives within the `rg-alerts-demo` resource group
+*   **Naming**: Generated automatically (e.g., `alertstore12345`) to satisfy Azure's global uniqueness requirement for storage account names
+
+### Core Metric Tracked
+*   **Metric**: `Transactions` (Total Transactions)
+*   **Namespace**: `Microsoft.Storage/storageAccounts`
+*   **Aggregation**: `Total`
+*   **What it captures**: The volume of API operations hitting the Storage Account — uploads, downloads, listing blobs, deleting containers, and similar calls
+
+### Why This Metric Was Chosen
+Storage Accounts sit underneath most cloud architectures as a foundational layer. A sudden jump in transaction volume can point to a few different things:
+1.  **A runaway application or bug** — code stuck in a loop repeatedly hitting storage
+2.  **Suspicious or malicious activity** — scanning attempts or brute-force authorization tries from outside actors
+3.  **Genuine growth in usage** — a legitimate increase in business traffic that may warrant a scaling conversation
+
+---
+
+## 2. How Alerts Get Delivered (Action Group)
+
+Monitoring only has value if someone is actually notified when something happens — this is the "closed-loop" half of the setup.
+
+*   **Action Group**: `EmailAlertsGroup`
+*   **Short Name**: `email-alerts`
+*   **Channel**: Email (the configuration supports adding other channels later)
+*   **Recipient**: `nzemikez@gmail.com`
+*   **Common Alert Schema**: Turned on — this gives every alert a consistent payload structure, which makes it easier to parse downstream by webhooks or other systems
+
+---
+
+## 3. How the Metric Alert Rule Was Built
+
+| Setting | Value | Why |
+| :--- | :--- | :--- |
+| **Name** | `StorageTransactionsAlert` | Makes the alert's purpose obvious at a glance |
+| **Severity** | `Sev 3` (Informational) | A traffic spike is worth flagging but isn't on its own evidence of an outage |
+| **Threshold Type** | **Static** | A fixed, predictable limit suits a baseline API metric like this one |
+| **Operator** | `GreaterThan` | Fires once activity climbs past the set limit |
+| **Threshold** | `50` | Deliberately set low so the alert is easy to trigger while testing |
+| **Granularity** | `1 Minute` | Buckets transactions into 1-minute windows to catch sudden spikes quickly |
+| **Frequency** | `1 Minute` | Re-checks the rule every minute, keeping the alert responsive |
+
+### Choosing Static Over Dynamic Thresholds
+*   **Static** (what's used here): A good fit when the acceptable limit is already known and fixed — things like "CPU over 90%", "disk space under 10%", or a hard cap of 50 operations. Easy to set up and leaves no room for guesswork.
+*   **Dynamic**: Better suited to metrics that naturally rise and fall with time-of-day or day-of-week patterns — web portal traffic, for instance. Azure Monitor learns the normal pattern using machine learning and flags anything that deviates from it, such as an unusual traffic dip on a weekday afternoon.
+
+---
+
+## 4. Log-Based Alert Query (KQL)
+
+Beyond the metric alert, a log-based rule was also set up to catch detailed diagnostic events. The Kusto query below runs against Log Analytics to surface client and server errors:
+
+```kql
+StorageBlobLogs
+| where TimeGenerated > ago(1h)
+| where StatusCode >= 400
+| project TimeGenerated, AccountName, OperationName, StatusCode, StatusText, Uri, CallerIpAddress
+| summarize ErrorCount = count() by AccountName, OperationName, StatusCode
+| where ErrorCount > 5
+| order by ErrorCount desc
 ```
 
----
-
-## Step-by-Step Execution Guide
-
-You can run these scripts using **either** **Azure CLI** or **PowerShell** (which calls Azure CLI under the hood, removing the need for the `Az` module).
-
-### Step 1: Login to Azure CLI
-Open your terminal and verify your active subscription:
-```bash
-az login
-# If you have multiple subscriptions, select your active one:
-az account set --subscription "<subscription-name-or-id>"
-```
-
----
-
-### Step 2: Provision Monitored Storage Resource
-Run the script to create the `rg-alerts-demo` resource group and the Storage Account. Note the storage account name outputted by the script.
-
-*   **Azure CLI / Bash**:
-    ```bash
-    chmod +x scripts/deploy-monitored-resource.sh
-    ./scripts/deploy-monitored-resource.sh
-    ```
-*   **PowerShell**:
-    ```powershell
-    .\scripts\deploy-monitored-resource.ps1
-    ```
-
----
-
-### Step 3: Deploy Action Group and Alert Rules
-Run the deployment script, replacing `<StorageAccountName>` with the name generated in Step 2.
-
-*   **Azure CLI / Bash**:
-    ```bash
-    chmod +x alerts/deploy-monitoring.sh
-    ./alerts/deploy-monitoring.sh -s "<StorageAccountName>" -e "duduyemiolamc@gmail.com"
-    ```
-*   **PowerShell**:
-    ```powershell
-    .\alerts\deploy-monitoring.ps1 -StorageAccountName "<StorageAccountName>" -EmailAddress "duduyemiolamc@gmail.com"
-    ```
-
----
-
-### Step 4: Simulate Transaction Traffic
-To trigger the alert, run the traffic simulator script. This script executes a loop uploading blobs, creating high API traffic that breaches the 50-transactions-per-minute threshold.
-
-*   **PowerShell**:
-    ```powershell
-    .\scripts\simulate-load.ps1 -StorageAccountName "<StorageAccountName>"
-    ```
-
----
-
-### Step 5: Capture Screen Artifacts & Manage Alert Lifecycle
-1.  **Metric Rule**: Capture a screenshot of the configured alert rule details in the Azure Portal (save as `rule-details.png`).
-2.  **Fired Alert**: While the simulation script runs or shortly after, navigate to **Monitor** > **Alerts**. Capture a screenshot of the active alert showing `Fired` (save as `alert-fired.png`).
-3.  **Acknowledge**: Click on the fired alert in the console, change its **User Response State** to **Acknowledge** to practice alert lifecycle tracking.
-4.  **Check Email**: Verify that you received an email alert notification in your inbox for `duduyemiolamc@gmail.com`. Capture a screenshot of the email header/body (save as `email-notification.png`).
-5.  **Resolution**: Once the simulation script completes, wait 3-5 minutes. The alert will transition back to a green `Resolved` state in the console.
-
----
-
-## Submission Checklist
-
-Before submitting the GitHub link, ensure your repository has:
-*   [ ] Complete [Monitoring Report](file:///C:/Users/duduy/OneDrive/Documents/AzureAlertsMiniProject/reports/monitoring-report.md).
-*   [ ] Reference [KQL Log Query](file:///C:/Users/duduy/OneDrive/Documents/AzureAlertsMiniProject/scripts/log-alert-query.kql).
-*   [ ] Screen verification items in [screenshots/](file:///C:/Users/duduy/OneDrive/Documents/AzureAlertsMiniProject/screenshots):
-    *   `screenshots/rule-details.png`
-    *   `screenshots/alert-fired.png`
-    *   `screenshots/email-notification.png`
+### How the Query Works
+*   **Source table**: Pulls from `StorageBlobLogs`, where diagnostic logs for the storage resource are collected
+*   **Filtering**: Narrows results to `StatusCode >= 400`, catching things like authorization failures (`403 Forbidden`) or missing resource errors (`404 Not Found`)
+*   **Alert condition**: Groups and counts errors, only firing when more than 5 occur within the 5-minute evaluation window — this avoids noisy alerts from a single isolated failure while still catching broader, system-level problems
