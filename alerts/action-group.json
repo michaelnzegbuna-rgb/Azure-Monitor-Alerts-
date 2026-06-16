@@ -18,7 +18,7 @@
     },
     "emailAddress": {
       "type": "string",
-      "defaultValue": "duduyemiolamc@gmail.com",
+      "defaultValue": "nzemikez@gmail.com",
       "metadata": {
         "description": "Email address to receive alert notifications"
       }
